@@ -2,7 +2,8 @@
 using BepInEx.Logging;
 using HarmonyLib;
 using System;
-namespace AtOEndless {
+namespace AtOEndless
+{
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
     [BepInProcess("AcrossTheObelisk.exe")]
     public class Plugin : BaseUnityPlugin
