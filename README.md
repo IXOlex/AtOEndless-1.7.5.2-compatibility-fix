@@ -1,3 +1,5 @@
+AtOEndless-1.7.5.2-compatibility-fix
+
 Unofficial compatibility update for AtOEndless.
 
 Changes:
