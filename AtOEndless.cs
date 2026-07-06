@@ -15,6 +15,9 @@ using System.IO;
 using System.Reflection.Emit;
 using TMPro;
 using System.Drawing;
+using CardData = Cards.CardRealtimeData;
+using CardDataSource = CardDataNew;
+using Cards.Utility;
 
 
 /*
@@ -102,7 +105,68 @@ namespace AtOEndless
 
         public static AtOEndlessSaveManager EndlessSaveManager;
 
-        public static CardData GetRandomBlessing(List<string> ignore = null)
+        private static CardDataSource GetCardSource(CardData cardData)
+        {
+            return cardData == null ? null : Traverse.Create(cardData).Field<CardDataSource>("card").Value;
+        }
+
+        private static void SetCardSourceField<T>(CardDataSource cardData, string fieldName, T value)
+        {
+            Traverse.Create(cardData).Field(fieldName).SetValue(value);
+        }
+
+        private static CardData CreateRuntimeCard(CardDataSource cardData)
+        {
+            CardData runtimeCard = new CardData(cardData, cardData.Id);
+            runtimeCard.PostInit();
+            return runtimeCard;
+        }
+
+        private static Hero[] GetTeamHeroes()
+        {
+            Hero[] heroes = new Hero[4];
+            for (int index = 0; index < heroes.Length; index++)
+            {
+                heroes[index] = AtOManager.Instance.team.GetHero(index);
+            }
+            return heroes;
+        }
+
+        private static Hero[] GetMatchHeroes()
+        {
+            Hero[] heroes = new Hero[4];
+            BattleMatch.Team teamHero = Traverse.Create(MatchManager.Instance).Property<BattleMatch.Team>("TeamHero").Value;
+            for (int index = 0; index < heroes.Length && teamHero != null && index < teamHero.Count; index++)
+            {
+                heroes[index] = teamHero[index] as Hero;
+            }
+            return heroes;
+        }
+
+        private static NPC[] GetMatchNPCs()
+        {
+            NPC[] npcs = new NPC[4];
+            BattleMatch.Team teamNPC = Traverse.Create(MatchManager.Instance).Property<BattleMatch.Team>("TeamNPC").Value;
+            for (int index = 0; index < npcs.Length && teamNPC != null && index < teamNPC.Count; index++)
+            {
+                npcs[index] = teamNPC[index] as NPC;
+            }
+            return npcs;
+        }
+
+        private static int GetRandomIntRange(int min, int max)
+        {
+            return MatchManager.Instance.Random.GetRandomIntRange(min, max, "items", "");
+        }
+
+        private static void DisableKillPet(CardData cardData)
+        {
+            CardDataSource source = GetCardSource(cardData);
+            if (source?.PetData != null)
+                source.PetData.KillPet = false;
+        }
+
+        public static CardDataSource GetRandomBlessing(List<string> ignore = null)
         {
             List<string> stringList = [.. availableBlessings];
 
@@ -170,7 +234,7 @@ namespace AtOEndless
                     cDataCorruption = Globals.Instance.GetCardData(corruptionIdCard, false);
 
                 LogInfo($"Got Corruption Card: {cDataCorruption.Id}");
-                return cDataCorruption;
+                return GetCardSource(cDataCorruption);
             }
             return null;
         }
@@ -178,9 +242,9 @@ namespace AtOEndless
         public static void BeginMatchBlessings()
         {
             LogInfo($"BEGIN MATCH BLESSINGS {string.Join(", ", activeBlessings)}");
-            Hero[] teamHero = Traverse.Create(MatchManager.Instance).Field("TeamHero").GetValue<Hero[]>();
+            Hero[] teamHero = GetMatchHeroes();
             LogInfo($"Got Heroes: {teamHero.Length}");
-            NPC[] teamNPC = Traverse.Create(MatchManager.Instance).Field("TeamNPC").GetValue<NPC[]>();
+            NPC[] teamNPC = GetMatchNPCs();
             LogInfo($"Got NPCs: {teamNPC.Length}");
 
             foreach (string blessing in activeBlessings)
@@ -200,9 +264,9 @@ namespace AtOEndless
                 {
                     cardData.EnergyCost = 0;
                     cardData.Vanish = true;
-                    cardData.CardClass = Enums.CardClass.Boon;
+                    SetCardSourceField(GetCardSource(cardData), "cardClass", Enums.CardClass.Boon);
                     MatchManager.Instance.GenerateNewCard(1, blessing, false, Enums.CardPlace.Vanish);
-                    Hero[] teamHero = Traverse.Create(MatchManager.Instance).Field("TeamHero").GetValue<Hero[]>();
+                    Hero[] teamHero = GetMatchHeroes();
                     for (int index = 0; index < 4; ++index)
                     {
                         if (teamHero[index] != null && teamHero[index].Alive)
@@ -222,8 +286,8 @@ namespace AtOEndless
                 CardData cardData = MatchManager.Instance.GetCardData(blessing);
                 if (cardData.Item != null && cardData.Item.Activation == blessingBeginRound)
                 {
-                    Hero[] teamHero = Traverse.Create(MatchManager.Instance).Field("TeamHero").GetValue<Hero[]>();
-                    NPC[] teamNPC = Traverse.Create(MatchManager.Instance).Field("TeamNPC").GetValue<NPC[]>();
+                    Hero[] teamHero = GetMatchHeroes();
+                    NPC[] teamNPC = GetMatchNPCs();
                     LogInfo($"{blessing} - BEGIN ROUND - {cardData.Item.ItemTarget}");
                     if (cardData.Item.ItemTarget == Enums.ItemTarget.AllHero)
                     {
@@ -253,7 +317,7 @@ namespace AtOEndless
                             bool flag4 = false;
                             while (!flag4)
                             {
-                                int randomIntRange = MatchManager.Instance.GetRandomIntRange(0, 4);
+                                int randomIntRange = GetRandomIntRange(0, 4);
                                 if (teamHero[randomIntRange] != null && teamHero[randomIntRange].Alive)
                                 {
                                     teamHero[randomIntRange].DoItem(blessingBeginRound, cardData, cardData.Item.Id, null, 0, "", 0, null);
@@ -290,7 +354,7 @@ namespace AtOEndless
                             bool flag5 = false;
                             while (!flag5)
                             {
-                                int randomIntRange = MatchManager.Instance.GetRandomIntRange(0, 4);
+                                int randomIntRange = GetRandomIntRange(0, 4);
                                 if (teamNPC[randomIntRange] != null && teamNPC[randomIntRange].Alive)
                                 {
                                     teamNPC[randomIntRange].DoItem(blessingBeginRound, cardData, cardData.Item.Id, null, 0, "", 0, null);
@@ -360,18 +424,11 @@ namespace AtOEndless
             }
         }
 
-        [HarmonyTranspiler]
-        [HarmonyPatch(typeof(MatchManager), "BeginMatch", MethodType.Enumerator)]
-        public static IEnumerable<CodeInstruction> BeginMatch_Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(BattleMatch.InitiativesManager), nameof(BattleMatch.InitiativesManager.SetInitiatives))]
+        public static void SetInitiativesPostfix()
         {
-            var codeMatcher = new CodeMatcher(instructions, generator);
-            codeMatcher.MatchStartForward(
-                    new CodeMatch(OpCodes.Call, AccessTools.Method(typeof(MatchManager), "SetInitiatives"))
-                )
-                .InsertAndAdvance(
-                    new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(AtOEndless), "BeginMatchBlessings"))
-                );
-            return codeMatcher.InstructionEnumeration();
+            BeginMatchBlessings();
         }
 
         [HarmonyTranspiler]
@@ -474,33 +531,33 @@ namespace AtOEndless
         }
 
         [HarmonyPrefix]
-        [HarmonyPatch(typeof(CardData), nameof(CardData.SetDescriptionNew))]
-        public static void SetDescriptionNewPre(ref CardData __instance, bool forceDescription, Character character, bool includeInSearch, out Enums.EventActivation __state)
+        [HarmonyPatch(typeof(CardDescriptionExtension), nameof(CardDescriptionExtension.SetDescriptionNew))]
+        public static void SetDescriptionNewPre(CardData data, bool forceDescription, Character character, bool includeInSearch, out Enums.EventActivation __state)
         {
             __state = Enums.EventActivation.None;
-            if (__instance.CardType == blessingCardType && __instance.Item != null)
+            if (data.CardType == blessingCardType && data.Item != null)
             {
-                if (__instance.Item.Activation == blessingBeginRound)
+                if (data.Item.Activation == blessingBeginRound)
                 {
-                    __state = __instance.Item.Activation;
-                    __instance.Item.Activation = Enums.EventActivation.BeginRound;
+                    __state = data.Item.Activation;
+                    data.Item.Activation = Enums.EventActivation.BeginRound;
                 }
-                if (__instance.Item.Activation == blessingCombatStart)
+                if (data.Item.Activation == blessingCombatStart)
                 {
-                    __state = __instance.Item.Activation;
-                    __instance.Item.Activation = Enums.EventActivation.BeginCombat;
+                    __state = data.Item.Activation;
+                    data.Item.Activation = Enums.EventActivation.BeginCombat;
                 }
             }
         }
 
         [HarmonyPostfix]
-        [HarmonyPatch(typeof(CardData), nameof(CardData.SetDescriptionNew))]
-        public static void SetDescriptionNewPost(ref CardData __instance, bool forceDescription, Character character, bool includeInSearch, Enums.EventActivation __state)
+        [HarmonyPatch(typeof(CardDescriptionExtension), nameof(CardDescriptionExtension.SetDescriptionNew))]
+        public static void SetDescriptionNewPost(CardData data, bool forceDescription, Character character, bool includeInSearch, Enums.EventActivation __state)
         {
-            if (__instance.CardType == blessingCardType && __instance.Item != null)
+            if (data.CardType == blessingCardType && data.Item != null)
             {
                 if (__state != Enums.EventActivation.None)
-                    __instance.Item.Activation = __state;
+                    data.Item.Activation = __state;
             }
         }
 
@@ -509,38 +566,17 @@ namespace AtOEndless
         [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.SaveGame))]
         public static void SaveGame(int slot, bool backUp)
         {
-            string saveGameExtensionBK = Traverse.Create(typeof(SaveManager)).Field("saveGameExtensionBK").GetValue<string>();
-            string saveGameExtension = Traverse.Create(typeof(SaveManager)).Field("saveGameExtension").GetValue<string>();
-            byte[] key = Traverse.Create(typeof(SaveManager)).Field("key").GetValue<byte[]>();
-            byte[] iv = Traverse.Create(typeof(SaveManager)).Field("iv").GetValue<byte[]>();
-
-            StringBuilder stringBuilder1 = new StringBuilder();
-            stringBuilder1.Append(Application.persistentDataPath);
-            stringBuilder1.Append("/");
-            stringBuilder1.Append((ulong)SteamManager.Instance.steamId);
-            stringBuilder1.Append("/");
-            stringBuilder1.Append(GameManager.Instance.ProfileFolder);
-            stringBuilder1.Append("endless_");
-            stringBuilder1.Append(slot);
-            StringBuilder stringBuilder2 = new StringBuilder();
-            stringBuilder2.Append(stringBuilder1.ToString());
-            stringBuilder2.Append(saveGameExtensionBK);
-            stringBuilder1.Append(saveGameExtension);
-            string str = stringBuilder1.ToString();
-            string destFileName = stringBuilder2.ToString();
-            if (backUp && File.Exists(str))
-                File.Copy(str, destFileName, true);
-            DESCryptoServiceProvider cryptoServiceProvider = new DESCryptoServiceProvider();
             try
             {
-                FileStream fileStream = new FileStream(str, FileMode.Create, FileAccess.Write);
-                using (CryptoStream cryptoStream = new CryptoStream(fileStream, cryptoServiceProvider.CreateEncryptor(key, iv), CryptoStreamMode.Write))
-                {
-                    BinaryFormatter binaryFormatter = new BinaryFormatter();
-                    EndlessSaveManager.FillData(binaryFormatter, cryptoStream);
-                    cryptoStream.Close();
-                }
-                fileStream.Close();
+                string path = GetEndlessSavePath(slot);
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                if (backUp && File.Exists(path))
+                    File.Copy(path, path + ".bak", true);
+
+                EndlessSaveManager.endlessData.FillData();
+                File.WriteAllText(path, JsonHelper.ToJson<string>(EndlessSaveManager.endlessData.activeBlessings.ToArray()));
+                if (GameManager.Instance.IsMultiplayer() && NetworkManager.Instance.IsMaster())
+                    EndlessSaveManager.SendData();
             }
             catch (Exception ex)
             {
@@ -553,47 +589,35 @@ namespace AtOEndless
         [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.LoadGame))]
         public static void LoadGame(int slot, bool comingFromReloadCombat)
         {
-            string saveGameExtension = Traverse.Create(typeof(SaveManager)).Field("saveGameExtension").GetValue<string>();
-            byte[] key = Traverse.Create(typeof(SaveManager)).Field("key").GetValue<byte[]>();
-            byte[] iv = Traverse.Create(typeof(SaveManager)).Field("iv").GetValue<byte[]>();
-
-            StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.Append(Application.persistentDataPath);
-            stringBuilder.Append("/");
-            stringBuilder.Append((ulong)SteamManager.Instance.steamId);
-            stringBuilder.Append("/");
-            stringBuilder.Append(GameManager.Instance.ProfileFolder);
-            stringBuilder.Append("endless_");
-            stringBuilder.Append(slot);
-            stringBuilder.Append(saveGameExtension);
-            string path = stringBuilder.ToString();
+            string path = GetEndlessSavePath(slot);
             if (!File.Exists(path))
             {
-                LogInfo("ERROR File does not exists");
+                LogInfo("No AtOEndless save file exists");
             }
             else
             {
-                FileStream fileStream = new FileStream(path, FileMode.Open);
-                if (fileStream.Length == 0L)
+                try
                 {
-                    fileStream.Close();
+                    string json = File.ReadAllText(path);
+                    EndlessSaveManager.endlessData.activeBlessings = JsonHelper.FromJson<string>(json).ToHashSet();
+                    EndlessSaveManager.endlessData.LoadData();
+                    if (GameManager.Instance.IsMultiplayer() && NetworkManager.Instance.IsMaster())
+                        EndlessSaveManager.SendData();
                 }
-                else
+                catch (Exception ex)
                 {
-                    DESCryptoServiceProvider cryptoServiceProvider = new DESCryptoServiceProvider();
-                    try
-                    {
-                        CryptoStream serializationStream = new CryptoStream(fileStream, cryptoServiceProvider.CreateDecryptor(key, iv), CryptoStreamMode.Read);
-                        EndlessSaveManager.LoadData(serializationStream);
-                        serializationStream.Close();
-                    }
-                    catch (SerializationException ex)
-                    {
-                        LogInfo("Failed to deserialize LoadGame. Reason: " + ex.Message);
-                    }
-                    fileStream.Close();
+                    LogInfo("Failed to load AtOEndless Data. Reason: " + ex.Message);
                 }
             }
+        }
+
+        private static string GetEndlessSavePath(int slot)
+        {
+            return Path.Combine(
+                Application.persistentDataPath,
+                ((ulong)SteamManager.Instance.steamId).ToString(),
+                GameManager.Instance.ProfileFolder,
+                $"AtOEndless_save_slot_{slot}.json");
         }
 
 
@@ -670,7 +694,7 @@ namespace AtOEndless
             if (!AtOManager.Instance.PlayerHasRequirement(Globals.Instance.GetRequirementData("endless_allow_additional_levels")))
                 return;
 
-            Hero[] team = AtOManager.Instance.GetTeam();
+            Hero[] team = GetTeamHeroes();
             Hero hero = team.Where(hero => hero.SubclassName.ToLower() == __instance.SubClassName.ToLower()).First();
             if (hero.Traits.Length < 9)
             {
@@ -844,7 +868,7 @@ namespace AtOEndless
         public static string[] GetEnabledPerks()
         {
             List<string> acquiredPerks = [];
-            foreach (List<string> sub in AtOManager.Instance.heroPerks.Values)
+            foreach (List<string> sub in AtOManager.Instance.PerksManager.heroPerks.Values)
             {
                 foreach (string perk in sub)
                 {
@@ -1005,14 +1029,14 @@ namespace AtOEndless
                 List<string> exclude = [];
                 for (int i = 0; i < 3; i++)
                 {
-                    CardData blessing = GetRandomBlessing(exclude);
+                    CardDataSource blessing = GetRandomBlessing(exclude);
                     if (blessing != null)
                     {
                         exclude.Add(blessing.Id);
                         EventReplyData blessingReplyData = blessingReplyPrefab.ShallowCopy();
                         blessingReplyData.SsPerkData = null;
                         blessingReplyData.SsPerkData1 = null;
-                        blessingReplyData.SsAddCard1 = blessing;
+                        blessingReplyData.SsAddCards = [blessing];
                         blessingReplyData.ReplyShowCard = blessing;
                         blessingReplyData.ReplyText = blessing.CardName;
                         blessingReplyData.SsRewardText = "";
@@ -1226,9 +1250,9 @@ namespace AtOEndless
         {
             if (___currentEvent.EventId == "e_endless_blessing")
             {
-                if (___replySelected != null && ___replySelected.SsAddCard1 != null)
+                if (___replySelected != null && ___replySelected.SsAddCards != null && ___replySelected.SsAddCards.Count > 0)
                 {
-                    CardData blessingCard = ___replySelected.SsAddCard1;
+                    CardDataSource blessingCard = ___replySelected.SsAddCards[0];
 
                     LogInfo($"Selected blessing: {blessingCard.Id}");
 
@@ -1239,7 +1263,7 @@ namespace AtOEndless
                         activeBlessings.Add(blessingCard.Id);
                         if (blessingCard.Item != null && blessingCard.Item.MaxHealth > 0)
                         {
-                            Hero[] team = AtOManager.Instance.GetTeam();
+                            Hero[] team = GetTeamHeroes();
                             for (int index = 0; index < 4; ++index)
                             {
                                 if (team[index] != null && team[index].HeroData != null)
@@ -1254,7 +1278,7 @@ namespace AtOEndless
                         }
                     }
 
-                    ___replySelected.SsAddCard1 = null;
+                    ___replySelected.SsAddCards = null;
                 }
             }
         }
@@ -1331,13 +1355,13 @@ namespace AtOEndless
         }
 
         [HarmonyPostfix]
-        [HarmonyPatch(typeof(AtOManager), nameof(AtOManager.AddPerkToHero))]
-        public static void AddPerkToHeroPost(AtOManager __instance, ref Hero[] ___teamAtO, int _heroIndex, string _perkId, bool _initHealth)
+        [HarmonyPatch(typeof(PerksManager), nameof(PerksManager.AddPerkToHero))]
+        public static void AddPerkToHeroPost(Hero hero, string perkId, bool initHealth)
         {
-            PerkData perkData = Globals.Instance.GetPerkData(_perkId);
+            PerkData perkData = Globals.Instance.GetPerkData(perkId);
             if (!(perkData != null))
                 return;
-            string subclassName = ___teamAtO[_heroIndex].SubclassName;
+            string subclassName = hero.SubclassName;
         }
 
         public static void AddNewRequirement(string id, ref Dictionary<string, EventRequirementData> ____Requirements)
@@ -1382,34 +1406,36 @@ namespace AtOEndless
             }
         }
 
-        public static CardData AddNewCard(string id, string baseId, ref Dictionary<string, CardData> ____CardsSource, ref Dictionary<string, CardData> ____Cards)
+        public static CardDataSource AddNewCard(string id, string baseId, ref Dictionary<string, CardDataSource> ____CardsSource, ref Dictionary<string, CardData> ____Cards)
         {
-            if (____CardsSource.TryGetValue(baseId, out CardData cardPrefab))
+            if (____CardsSource.TryGetValue(baseId, out CardDataSource cardPrefab))
             {
                 LogInfo($"Adding new card: {id} from {baseId}");
-                CardData newCard = UnityEngine.Object.Instantiate(cardPrefab);
-                newCard.Id = id;
-                newCard.InternalId = id;
+                CardDataSource newCard = UnityEngine.Object.Instantiate(cardPrefab);
+                SetCardSourceField(newCard, "id", id);
+                SetCardSourceField(newCard, "internalId", id);
 
                 if (newCard.Item != null)
                 {
-                    newCard.Item = UnityEngine.Object.Instantiate(newCard.Item);
-                    newCard.Item.Id = id;
+                    ItemData newItem = UnityEngine.Object.Instantiate(newCard.Item);
+                    newItem.Id = id;
+                    SetCardSourceField(newCard, "item", newItem);
                 }
                 if (newCard.ItemEnchantment != null)
                 {
-                    newCard.ItemEnchantment = UnityEngine.Object.Instantiate(newCard.ItemEnchantment);
-                    newCard.ItemEnchantment.Id = id;
+                    ItemData newItemEnchantment = UnityEngine.Object.Instantiate(newCard.ItemEnchantment);
+                    newItemEnchantment.Id = id;
+                    SetCardSourceField(newCard, "itemEnchantment", newItemEnchantment);
                 }
 
                 ____CardsSource.Add(newCard.Id.ToLower(), newCard);
-                ____Cards.Add(newCard.Id.ToLower(), newCard);
+                ____Cards.Add(newCard.Id.ToLower(), CreateRuntimeCard(newCard));
                 return newCard;
             }
             return null;
         }
 
-        private static void InitNewCard(CardData newCard,
+        private static void InitNewCard(CardDataSource newCard,
             ref Dictionary<Enums.CardType, List<string>> ____CardItemByType,
             ref Dictionary<Enums.CardType, List<string>> ____CardListByType,
             ref Dictionary<Enums.CardClass, List<string>> ____CardListByClass,
@@ -1418,42 +1444,46 @@ namespace AtOEndless
             ref Dictionary<string, List<string>> ____CardListByClassType,
             ref Dictionary<string, int> ____CardEnergyCost)
         {
-            newCard.InitClone(newCard.Id);
+            CardData runtimeCard = Globals.Instance.GetCardData(newCard.Id, false) ?? CreateRuntimeCard(newCard);
 
-            ____CardEnergyCost.Add(newCard.Id, newCard.EnergyCost);
+            ____CardEnergyCost[newCard.Id] = runtimeCard.EnergyCost;
             Globals.Instance.IncludeInSearch(newCard.CardName, newCard.Id);
-            ____CardListByClass[newCard.CardClass].Add(newCard.Id);
-            if (newCard.CardUpgraded == Enums.CardUpgraded.No)
+            if (!____CardListByClass.ContainsKey(runtimeCard.CardClass))
+                ____CardListByClass[runtimeCard.CardClass] = [];
+            ____CardListByClass[runtimeCard.CardClass].Add(newCard.Id);
+            if (runtimeCard.CardUpgraded == Enums.CardUpgraded.No)
             {
-                ____CardListNotUpgradedByClass[newCard.CardClass].Add(newCard.Id);
+                if (!____CardListNotUpgradedByClass.ContainsKey(runtimeCard.CardClass))
+                    ____CardListNotUpgradedByClass[runtimeCard.CardClass] = [];
+                ____CardListNotUpgradedByClass[runtimeCard.CardClass].Add(newCard.Id);
                 ____CardListNotUpgraded.Add(newCard.Id);
-                if (newCard.CardClass == Enums.CardClass.Item)
+                if (runtimeCard.CardClass == Enums.CardClass.Item)
                 {
-                    if (!____CardItemByType.ContainsKey(newCard.CardType))
-                        ____CardItemByType.Add(newCard.CardType, new List<string>());
-                    ____CardItemByType[newCard.CardType].Add(newCard.Id);
+                    if (!____CardItemByType.ContainsKey(runtimeCard.CardType))
+                        ____CardItemByType.Add(runtimeCard.CardType, new List<string>());
+                    ____CardItemByType[runtimeCard.CardType].Add(newCard.Id);
                 }
             }
-            List<Enums.CardType> cardTypes = newCard.GetCardTypes();
+            List<Enums.CardType> cardTypes = runtimeCard.GetCardTypes();
             for (int index = 0; index < cardTypes.Count; ++index)
             {
                 if (!____CardListByType.ContainsKey(cardTypes[index]))
                     ____CardListByType.Add(cardTypes[index], new List<string>());
                 ____CardListByType[cardTypes[index]].Add(newCard.Id);
-                string key2 = Enum.GetName(typeof(Enums.CardClass), newCard.CardClass) + "_" + Enum.GetName(typeof(Enums.CardType), cardTypes[index]);
+                string key2 = Enum.GetName(typeof(Enums.CardClass), runtimeCard.CardClass) + "_" + Enum.GetName(typeof(Enums.CardType), cardTypes[index]);
                 if (!____CardListByClassType.ContainsKey(key2))
                     ____CardListByClassType[key2] = new List<string>();
                 ____CardListByClassType[key2].Add(newCard.Id);
                 Globals.Instance.IncludeInSearch(Texts.Instance.GetText(Enum.GetName(typeof(Enums.CardType), cardTypes[index])), newCard.Id);
             }
 
-            newCard.InitClone2();
-            newCard.SetDescriptionNew(true);
+            runtimeCard.PostInit();
+            runtimeCard.SetDescriptionNew(true, null, false);
         }
 
-        public static CardData CloneBlessingCard(string cardId,
+        public static CardDataSource CloneBlessingCard(string cardId,
             bool isBlessing,
-            ref Dictionary<string, CardData> ____CardsSource,
+            ref Dictionary<string, CardDataSource> ____CardsSource,
             ref Dictionary<string, CardData> ____Cards,
             ref Dictionary<Enums.CardType, List<string>> ____CardItemByType,
             ref Dictionary<Enums.CardType, List<string>> ____CardListByType,
@@ -1464,7 +1494,7 @@ namespace AtOEndless
             ref Dictionary<string, int> ____CardEnergyCost)
         {
 
-            if (____Cards.TryGetValue($"endless{cardId}", out CardData oldCard))
+            if (____CardsSource.TryGetValue($"endless{cardId}", out CardDataSource oldCard))
             {
                 LogInfo($"Got existing card: {oldCard.Id}");
                 return oldCard;
@@ -1472,12 +1502,12 @@ namespace AtOEndless
 
             LogInfo($"Creating blessing card endless{cardId}");
 
-            CardData newCard = AddNewCard($"endless{cardId}", cardId, ref ____CardsSource, ref ____Cards);
-            newCard.CardName = $"Blessing: {newCard.CardName}";
+            CardDataSource newCard = AddNewCard($"endless{cardId}", cardId, ref ____CardsSource, ref ____Cards);
+            SetCardSourceField(newCard, "cardName", $"Blessing: {newCard.CardName}");
 
             if (isBlessing)
-                newCard.CardType = blessingCardType;
-            newCard.CardClass = Enums.CardClass.Special;
+                SetCardSourceField(newCard, "cardType", blessingCardType);
+            SetCardSourceField(newCard, "cardClass", Enums.CardClass.Special);
 
             ItemData newCardItem = newCard.Item ?? newCard.ItemEnchantment;
             if (newCardItem != null)
@@ -1525,58 +1555,49 @@ namespace AtOEndless
                 if (newCardItem.CardToGain != null)
                 {
                     newCardItem.CardToGain = CloneBlessingCard(newCardItem.CardToGain.Id, false, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
-                    newCardItem.CardToGain.Playable = true;
-                    if (newCard.RelatedCard != "")
-                        newCard.RelatedCard = newCardItem.CardToGain.Id;
+                    SetCardSourceField(newCardItem.CardToGain, "playable", true);
                 }
                 else if (newCardItem.CardToGainList != null && newCardItem.CardToGainList.Count > 0)
                 {
-                    List<CardData> newCardsToGain = [];
-                    foreach (CardData card in newCardItem.CardToGainList)
+                    List<CardDataSource> newCardsToGain = [];
+                    foreach (CardDataSource card in newCardItem.CardToGainList)
                     {
-                        CardData newCardToGain = CloneBlessingCard(card.Id, false, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
-                        newCardToGain.Playable = true;
+                        CardDataSource newCardToGain = CloneBlessingCard(card.Id, false, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
+                        SetCardSourceField(newCardToGain, "playable", true);
                         newCardsToGain.Add(newCardToGain);
                     }
                     newCardItem.CardToGainList = newCardsToGain;
-                    if (newCardItem.CardToGainList.Count > 0 && newCard.RelatedCard != "")
-                        newCard.RelatedCard = newCardItem.CardToGainList[0].Id;
-                    if (newCardItem.CardToGainList.Count > 1 && newCard.RelatedCard2 != "")
-                        newCard.RelatedCard2 = newCardItem.CardToGainList[1].Id;
-                    if (newCardItem.CardToGainList.Count > 2 && newCard.RelatedCard3 != "")
-                        newCard.RelatedCard3 = newCardItem.CardToGainList[2].Id;
                 }
 
                 if (newCard.ItemEnchantment != null)
-                    newCard.ItemEnchantment = newCardItem;
+                    SetCardSourceField(newCard, "itemEnchantment", newCardItem);
                 else
-                    newCard.Item = newCardItem;
+                    SetCardSourceField(newCard, "item", newCardItem);
             }
 
-            Traverse.Create(newCard).Field("descriptionId").SetValue("");
-            Traverse.Create(newCard).Field("effectRequired").SetValue("");
+            SetCardSourceField(newCard, "effectRequired", "");
 
-            if (newCard.UpgradedFrom != "")
+            if (newCard.Upgrade.UpgradedFrom != "")
             {
-                newCard.UpgradedFrom = $"endless{newCard.UpgradedFrom.ToLower()}";
+                SetCardSourceField(newCard, "upgrade", new Cards.Data.UpgradeData(newCard.Upgrade.UpgradesTo1, newCard.Upgrade.UpgradesTo2, newCard.Upgrade.CardUpgraded, $"endless{newCard.Upgrade.UpgradedFrom.ToLower()}", newCard.Upgrade.UpgradesToRare));
             }
 
-            if (newCard.UpgradesTo1 != "")
+            if (newCard.Upgrade.UpgradesTo1 != "")
             {
-                CardData upgradesTo1Card = CloneBlessingCard(newCard.UpgradesTo1.ToLower(), true, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
-                newCard.UpgradesTo1 = upgradesTo1Card.Id;
+                CardDataSource upgradesTo1Card = CloneBlessingCard(newCard.Upgrade.UpgradesTo1.ToLower(), true, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
+                SetCardSourceField(newCard, "upgrade", new Cards.Data.UpgradeData(upgradesTo1Card.Id, newCard.Upgrade.UpgradesTo2, newCard.Upgrade.CardUpgraded, newCard.Upgrade.UpgradedFrom, newCard.Upgrade.UpgradesToRare));
             }
 
-            if (newCard.UpgradesTo2 != "")
+            if (newCard.Upgrade.UpgradesTo2 != "")
             {
-                CardData upgradesTo2Card = CloneBlessingCard(newCard.UpgradesTo2.ToLower(), true, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
-                newCard.UpgradesTo2 = upgradesTo2Card.Id;
+                CardDataSource upgradesTo2Card = CloneBlessingCard(newCard.Upgrade.UpgradesTo2.ToLower(), true, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
+                SetCardSourceField(newCard, "upgrade", new Cards.Data.UpgradeData(newCard.Upgrade.UpgradesTo1, upgradesTo2Card.Id, newCard.Upgrade.CardUpgraded, newCard.Upgrade.UpgradedFrom, newCard.Upgrade.UpgradesToRare));
             }
 
-            if (newCard.UpgradesToRare != null)
+            if (newCard.Upgrade.UpgradesToRare != null)
             {
-                CardData upgradesToRareCard = CloneBlessingCard(newCard.UpgradesToRare.Id, true, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
-                newCard.UpgradesToRare = upgradesToRareCard;
+                CardDataSource upgradesToRareCard = CloneBlessingCard(newCard.Upgrade.UpgradesToRare.Id, true, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
+                SetCardSourceField(newCard, "upgrade", new Cards.Data.UpgradeData(newCard.Upgrade.UpgradesTo1, newCard.Upgrade.UpgradesTo2, newCard.Upgrade.CardUpgraded, newCard.Upgrade.UpgradedFrom, upgradesToRareCard));
             }
 
             InitNewCard(newCard, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
@@ -1744,7 +1765,7 @@ namespace AtOEndless
         ref Dictionary<string, CombatData> ____CombatDataSource,
         ref Dictionary<string, CinematicData> ____Cinematics,
         ref Dictionary<string, EventRequirementData> ____Requirements,
-        ref Dictionary<string, CardData> ____CardsSource,
+        ref Dictionary<string, CardDataSource> ____CardsSource,
         ref Dictionary<string, CardData> ____Cards,
         ref Dictionary<Enums.CardType, List<string>> ____CardItemByType,
         ref Dictionary<Enums.CardType, List<string>> ____CardListByType,
@@ -1760,7 +1781,7 @@ namespace AtOEndless
 
             foreach (string cardId in blessingCards)
             {
-                CardData blessing = CloneBlessingCard(cardId, true, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
+                CardDataSource blessing = CloneBlessingCard(cardId, true, ref ____CardsSource, ref ____Cards, ref ____CardItemByType, ref ____CardListByType, ref ____CardListByClass, ref ____CardListNotUpgraded, ref ____CardListNotUpgradedByClass, ref ____CardListByClassType, ref ____CardEnergyCost);
                 availableBlessings.Add(blessing.Id);
             }
 
@@ -2160,25 +2181,26 @@ namespace AtOEndless
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(EventManager), nameof(EventManager.CloseEvent))]
-        public static void CloseEvent(ref EventManager __instance, ref NodeData ___destinationNode, ref EventData ___currentEvent)
+        public static void CloseEvent(ref EventManager __instance, CloseEventData ____closeEventData, EventData ___currentEvent)
         {
             if (GameManager.Instance.IsObeliskChallenge() || GameManager.Instance.IsWeeklyChallenge())
                 return;
-            if (___destinationNode != null && ___currentEvent.EventId == "e_endless_obelisk")
+            NodeData destinationNode = ____closeEventData?.destinationNode;
+            if (destinationNode != null && ___currentEvent.EventId == "e_endless_obelisk")
             {
                 AtOManager.Instance.SetTownTier(AtOManager.Instance.GetActNumberForText());
                 AtOManager.Instance.SetGameId($"{AtOManager.Instance.GetGameId().Split('+').First()}+{AtOManager.Instance.GetActNumberForText()}");
                 AtOManager.Instance.gameNodeAssigned.Clear();
-                AtOManager.Instance.RemoveItemList(true);
+                AtOManager.Instance.GenerateTownItemList();
 
-                if (RemoveRequirementsByZone.TryGetValue(AtOManager.Instance.GetMapZone(___destinationNode.NodeId), out List<string> requirementsToRemove))
+                if (RemoveRequirementsByZone.TryGetValue(AtOManager.Instance.GetMapZone(destinationNode.NodeId), out List<string> requirementsToRemove))
                 {
                     foreach (string requirementToRemove in requirementsToRemove)
                     {
                         AtOManager.Instance.RemovePlayerRequirement(Globals.Instance.GetRequirementData(requirementToRemove));
                     }
                 }
-                if (AddRequirementsByZone.TryGetValue(AtOManager.Instance.GetMapZone(___destinationNode.NodeId), out List<string> requirementsToAdd))
+                if (AddRequirementsByZone.TryGetValue(AtOManager.Instance.GetMapZone(destinationNode.NodeId), out List<string> requirementsToAdd))
                 {
                     foreach (string requirementToAdd in requirementsToAdd)
                     {
@@ -2217,7 +2239,7 @@ namespace AtOEndless
                 // BLESSING AFTER VOID ZONES
                 if (AtOManager.Instance.PlayerHasRequirement(Globals.Instance.GetRequirementData("endless_allow_blessings_after_void")))
                 {
-                    if (AtOManager.Instance.GetMapZone(___destinationNode.NodeId) == Enums.Zone.VoidLow)
+                    if (AtOManager.Instance.GetMapZone(destinationNode.NodeId) == Enums.Zone.VoidLow)
                     {
                         AtOManager.Instance.AddPlayerRequirement(Globals.Instance.GetRequirementData("endless_pick_blessing"));
                     }
@@ -2572,7 +2594,7 @@ namespace AtOEndless
             return false;
         }
         [HarmonyPrefix]
-        [HarmonyPatch(typeof(MatchManager), nameof(MatchManager.CastCardAction))]
+        [HarmonyPatch(typeof(MatchManager), "CastCardAction")]
         public static void CastCardAction(MatchManager __instance,
                                             ref CardData _cardActive,
                                             Transform targetTransformCast,
@@ -2586,17 +2608,17 @@ namespace AtOEndless
             if (!_automatic)
             {
                 if (theCardItem.CardData.KillPet)
-                    theCardItem.CardData.KillPet = false;
+                    DisableKillPet(theCardItem.CardData);
             }
             else if (_cardActive == null && _card != null)
             {
                 if (_card.KillPet)
-                    _card.KillPet = false;
+                    DisableKillPet(_card);
             }
             else
             {
                 if (_cardActive.KillPet)
-                    _cardActive.KillPet = false;
+                    DisableKillPet(_cardActive);
             }
         }
 
@@ -2632,7 +2654,7 @@ namespace AtOEndless
                             __result.Add(blessingCard.Item.AuracurseImmune2.Id);
                     }
                 }
-                if (__result.Contains("bleed") && AtOManager.Instance.CharacterHavePerk(___subclassName, "mainperkfury1c"))
+                if (__result.Contains("bleed") && AtOManager.Instance.team.CharacterHavePerk(___subclassName, "mainperkfury1c"))
                     __result.Remove("bleed");
             }
         }
@@ -2657,7 +2679,7 @@ namespace AtOEndless
                 return;
             if (__state)
                 return;
-            if (__result == false && acName == "bleed" && AtOManager.Instance.CharacterHavePerk(___subclassName, "mainperkfury1c"))
+            if (__result == false && acName == "bleed" && AtOManager.Instance.team.CharacterHavePerk(___subclassName, "mainperkfury1c"))
                 return;
 
             if (___heroData != null)
@@ -3291,6 +3313,7 @@ namespace AtOEndless
             }
         }
 
+#if false
         private static void AddNewBlessings()
         {
             Dictionary<string, CardData> ____CardsSource = Traverse.Create(Globals.Instance).Field<Dictionary<string, CardData>>("_CardsSource").Value;
@@ -3661,5 +3684,6 @@ namespace AtOEndless
                 Vanish = true
             });
         }
+#endif
     }
 }

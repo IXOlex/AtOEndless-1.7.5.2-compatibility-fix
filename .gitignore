@@ -1,7 +1,4 @@
-bin/
-obj/
-.vscode/
-
-!libs/
-*.dll
-*.pdb
+\!libs
+AtOEndless
+bin
+obj

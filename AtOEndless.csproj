@@ -4,7 +4,7 @@
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>com.corgan.AtOEndless</AssemblyName>
     <Product>AtOEndless</Product>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <RestoreAdditionalProjectSources>
@@ -52,9 +52,9 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="../../../plugins" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="AtOEndless/BepInEx/plugins" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="D:/Steam/steamapps/common/Across the Obelisk/BepInEx/plugins"/>
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="../../../plugins" ContinueOnError="WarnAndContinue" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="AtOEndless/BepInEx/plugins" ContinueOnError="WarnAndContinue" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="D:/Steam/steamapps/common/Across the Obelisk/BepInEx/plugins" ContinueOnError="WarnAndContinue" />
   </Target>
 
 </Project>
