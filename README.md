@@ -1,52 +1,24 @@
-# AtOEndless Compatibility Fix (ATO 1.7.5.2)
+# AtOEndless v1.0.3 - Across the Obelisk 1.7.6.1 Compatibility Fix
 
-Unofficial compatibility fix for AtOEndless (original mod by Corgan).
+Unofficial compatibility update for the original **AtOEndless** mod by Corgan.
 
-## What this is
-
-This is a **drop-in DLL replacement** for the original AtOEndless mod.
-
-It restores compatibility with:
-
-- Across the Obelisk 1.7.5.2
-- BepInEx 5.4.21+
+This release updates the mod for **Across the Obelisk 1.7.6.1**.
 
 ## Changes
 
-- Updated references for current ATO version
-- Fixed compilation issue in `CreateCard()`
-- Runtime tested through an 11-act Endless run
+- Ported AtOEndless to the Across the Obelisk 1.7.6.1 API changes
+- Updated the card system compatibility after the `CardData` refactor
+- Replaced the old `MatchManager.SetInitiatives` patch with the new `BattleMatch.InitiativesManager.SetInitiatives` patch
+- Updated `EventManager.CloseEvent` destination node access
+- Replaced the old DES-based save hook with independent JSON save files
+- Updated runtime access to combat teams for the new battle structure
+- Build verified with 0 compilation errors
 
 ## Installation
 
-Remove the original AtOEndless DLL if installed:
+Remove the original AtOEndless DLL if it is already installed.
+
+Place:
 
 ```text
 com.corgan.AtOEndless.dll
-```
-
-Replace it with the DLL from this release in:
-
-```text
-Across the Obelisk/BepInEx/plugins/
-```
-
-Launch the game.
-
-## Important
-
-Do **not** run this alongside the original AtOEndless.
-
-Use this as a replacement.
-
-## Notes
-
-`CreateCard()` currently returns null.
-
-It appears unused in runtime testing, but additional community testing is welcome.
-
-## Credits
-
-Original mod by Corgan.
-
-Compatibility fix maintained by IXOlex.
